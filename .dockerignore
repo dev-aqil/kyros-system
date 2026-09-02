@@ -1,4 +1,6 @@
 .git
+.codex
+.vscode
 .gitignore
 .dockerignore
 README.md

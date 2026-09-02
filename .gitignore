@@ -5,8 +5,13 @@ Thumbs.db
 # Editor settings
 .vscode/
 .idea/
+.codex/
 
 # Local environment files and logs
 .env
 .env.*
 *.log
+
+# JavaScript build output
+node_modules/
+dist/
