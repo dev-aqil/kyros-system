@@ -1,188 +1,30 @@
 import { readThetanutsMarket } from './thetanuts.js';
 import { checkSuiTestnet, connectSuiTestnetWallet, sendSuiTestnetUsdc } from './sui.js';
-import {
-  ArrowRight,
-  BadgeCheck,
-  BriefcaseBusiness,
-  CalendarDays,
-  CircleDollarSign,
-  Landmark,
-  RefreshCw,
-  Send,
-  ShieldCheck,
-  WalletCards,
-  createIcons,
-} from 'lucide';
+import { ArrowRight, CalendarDays, CircleDollarSign, CirclePlus, Clock3, Landmark, RefreshCw, Send, ShieldCheck, TrendingDown, UsersRound, WalletCards, createIcons } from 'lucide';
 
 const app = document.querySelector('#app');
+const icons = { ArrowRight, CalendarDays, CircleDollarSign, CirclePlus, Clock3, Landmark, RefreshCw, Send, ShieldCheck, TrendingDown, UsersRound, WalletCards };
+const state = { screen: 'landing', protection: 'full', market: null, marketError: '', wallet: null, payoutError: '', payoutMessage: '', plan: { total: 15000, due: '2026-09-30', recipients: [{ initials: 'NS', name: 'Northlight Studio', detail: 'Design retainer', amount: 7500, due: '30 Sep' }, { initials: 'AR', name: 'A. Rahim', detail: 'Engineering support', amount: 5200, due: '30 Sep' }, { initials: 'CI', name: 'Cloudspan Infrastructure', detail: 'Hosting and bandwidth', amount: 2300, due: '28 Sep' }] } };
+const protectionPlans = () => ({ full: { title: 'Full protection', coverage: state.plan.total, premium: Math.round(state.plan.total * 0.027), copy: 'Protect the full payment budget if ETH falls.' }, partial: { title: 'Partial protection', coverage: Math.round(state.plan.total * 0.5), premium: Math.round(state.plan.total * 0.015), copy: 'Protect part of the budget at a lower cost.' } });
+const plans = new Proxy({}, { get: (_target, key) => protectionPlans()[key], ownKeys: () => Object.keys(protectionPlans()), getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }) });
+const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
+const due = () => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${state.plan.due}T00:00:00`));
+const rows = () => state.plan.recipients.map((r, i) => `<div class="recipient-row"><span class="initials tone-${i}">${r.initials}</span><span><strong>${r.name}</strong><small>${r.detail} · ${r.due}</small></span><b>${money(r.amount)}</b></div>`).join('');
+const progress = (step, label) => `<div class="progress"><span class="${step > 1 ? 'complete' : 'current'}">${step > 1 ? '✓' : '1'}</span><i></i><span class="${step > 2 ? 'complete' : step === 2 ? 'current' : ''}">${step > 2 ? '✓' : '2'}</span><i></i><span class="${step === 3 ? 'current' : ''}">3</span><b>Step ${step} of 3 · ${label}</b></div>`;
+const header = () => `<header class="topbar"><button class="brand brand-button" type="button" data-action="home">kyros<span>.</span></button><span class="product-label">Payment budget protection</span><div class="topbar-actions">${state.screen === 'dashboard' ? `<button class="button small primary" type="button" data-action="start">${icon('circle-plus')} New payment plan</button>` : ''}</div></header>`;
 
-const state = {
-  market: null,
-  marketError: '',
-  network: null,
-  networkError: '',
-  wallet: null,
-  payoutMessage: '',
-  payoutError: '',
-  selectedPlan: 'balanced',
-  view: 'dashboard',
-};
-
-const plans = {
-  balanced: { name: 'Balanced cover', premium: 404, strike: '$2,900', coverage: '$15,000', note: 'Recommended for this payment window.' },
-  essential: { name: 'Essential cover', premium: 196, strike: '$2,700', coverage: '$12,500', note: 'Lower cost, with part of the budget still exposed.' },
-};
-
-function money(value) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
-}
-
-function icon(name) {
-  return `<i data-lucide="${name}" aria-hidden="true"></i>`;
-}
-
-function render() {
-  const plan = plans[state.selectedPlan];
-  const marketLine = state.market
-    ? `ETH ${money(state.market.ethUsd)} · ${state.market.activeOrders} active Base orders`
-    : 'Base market data has not been refreshed.';
-  const marketStatus = state.marketError
-    ? `<p class="inline-error">${state.marketError} <button class="link-button" data-action="market">Try again</button></p>`
-    : `<p class="sync-line"><span class="live-dot"></span>${marketLine}</p>`;
-  const networkStatus = state.network
-    ? `Sui testnet reachable, epoch ${state.network.epoch}`
-    : state.networkError || 'Sui testnet has not been checked.';
-
-  app.innerHTML = `
-    <header class="topbar">
-      <a class="brand" href="#dashboard" data-action="dashboard" aria-label="Kyros dashboard">kyros<span>.</span></a>
-      <div class="topbar-actions">
-        <span class="network-chip">Base + Sui</span>
-        <button class="wallet-connect" type="button" data-action="connect-wallet">${state.wallet ? 'Sui wallet connected' : 'Connect Sui wallet'} ${icon('wallet-cards')}</button>
-      </div>
-    </header>
-    <main class="shell">
-      <section class="hero">
-        <p class="eyebrow">30-day payment plan</p>
-        <div class="hero-heading">
-          <div><h1>Know your payments are covered.</h1><p>Protect the USDC budget for contractor and supplier payments while your treasury stays invested.</p></div>
-          <button class="button primary" type="button" data-action="protection">Review protection ${icon('arrow-right')}</button>
-        </div>
-      </section>
-
-      <section class="budget-card" aria-labelledby="budget-title">
-        <div class="card-heading"><div><p class="eyebrow">Due by 30 Sep</p><h2 id="budget-title">$15,000 payment budget</h2></div><span class="status protected">${icon('shield-check')} Protected</span></div>
-        <div class="budget-grid">
-          <div><p class="metric-label">${icon('wallet-cards')} Treasury held</p><p class="metric">$37,000 <span>ETH</span></p><p class="quiet">You keep exposure to ETH upside.</p></div>
-          <div><p class="metric-label">${icon('circle-dollar-sign')} USDC ready now</p><p class="metric">$6,200 <span>USDC</span></p><p class="quiet">Available for immediate payments.</p></div>
-          <div><p class="metric-label">${icon('shield-check')} Protection plan</p><p class="metric">${plan.coverage}</p><p class="quiet">${plan.name} through 30 Sep.</p></div>
-        </div>
-        <div class="coverage-bar" aria-label="The payment budget is fully protected"><span></span></div>
-        <div class="rail-flow" aria-label="Kyros uses Base for price protection and Sui for recipient payouts"><span>${icon('landmark')} <b>Protect budget</b><small>Base · Thetanuts</small></span><i>${icon('arrow-right')}</i><span>${icon('send')} <b>Pay recipients</b><small>Sui · USDC</small></span></div>
-        <div class="card-footer"><span>Coverage is designed for this payment window, not a single invoice.</span><button class="text-button" type="button" data-action="protection">Adjust plan</button></div>
-      </section>
-
-      <section class="section-grid">
-        <article class="panel activity-panel"><div class="card-heading"><div><p class="eyebrow">${icon('calendar-days')} Scheduled payments</p><h2>Three recipients, one clear plan.</h2></div><button class="text-button" type="button" data-action="payout">View payouts</button></div>
-          <ul class="payment-list">
-            <li><span class="initials green">JM</span><span><strong>Jules Martin</strong><small>Design retainer · 20 Sep</small></span><b>$5,000</b></li>
-            <li><span class="initials blue">TA</span><span><strong>Team Aurora</strong><small>Engineering support · 25 Sep</small></span><b>$6,500</b></li>
-            <li><span class="initials amber">SP</span><span><strong>Studio Pixel</strong><small>Product sprint · 30 Sep</small></span><b>$3,500</b></li>
-          </ul>
-        </article>
-        <article class="panel market-panel"><div class="card-heading"><div><p class="eyebrow">${icon('landmark')} Thetanuts on Base</p><h2>Price protection signal</h2></div><button class="icon-button" type="button" data-action="market" aria-label="Refresh Base market data">${icon('refresh-cw')}</button></div>
-          <div class="market-price">${state.market ? money(state.market.ethUsd) : '—'} <span>ETH</span></div>
-          ${marketStatus}
-          <p class="small-copy">Market data is read-only. A real protection trade is shown to the treasury wallet for review and signature.</p>
-        </article>
-      </section>
-
-      <section class="payout-banner"><div><span class="logo-mark">${icon('send')}</span><div><p class="eyebrow">Payout rail</p><h2>Send the final USDC payment through Sui.</h2><p>${networkStatus}</p></div></div><button class="button secondary" type="button" data-action="payout">Prepare payout ${icon('arrow-right')}</button></section>
-
-      <p class="release-marker">release: kyros-001 · Testnet-first build</p>
-    </main>
-    <dialog class="dialog" id="protection-dialog" aria-labelledby="protection-title">
-      <form method="dialog" class="dialog-card"><button class="close" value="cancel" aria-label="Close protection options">×</button><p class="eyebrow">Thetanuts protection quote</p><h2 id="protection-title">Protect the full payment window.</h2><p class="dialog-intro">Choose how much of the next 30 days of scheduled payments you want covered if ETH falls.</p>
-        <fieldset class="plan-list"><legend>Protection level</legend>${Object.entries(plans).map(([key, item]) => `<label class="plan ${state.selectedPlan === key ? 'selected' : ''}"><input type="radio" name="plan" value="${key}" ${state.selectedPlan === key ? 'checked' : ''}/><span><strong>${item.name}</strong><small>Strike ${item.strike} · Covers up to ${item.coverage}</small></span><b>${money(item.premium)}<small>estimated premium</small></b></label>`).join('')}</fieldset>
-        <div class="notice">${icon('shield-check')} This is a planning estimate. Kyros refreshes the live Thetanuts order before the treasury wallet signs anything.</div>
-        <menu><button class="button ghost" value="cancel">Not now</button><button class="button primary" value="default" data-action="save-plan">Save protection plan</button></menu>
-      </form>
-    </dialog>
-    <dialog class="dialog" id="payout-dialog" aria-labelledby="payout-title">
-      <form method="dialog" class="dialog-card"><button class="close" value="cancel" aria-label="Close payout preparation">×</button><p class="eyebrow">Sui testnet payout</p><h2 id="payout-title">Prepare a recipient payment.</h2><p class="dialog-intro">A connected Sui wallet will review and sign the transfer. Kyros does not store keys or send funds on its own.</p>
-        <label for="recipient">Recipient Sui address</label><input id="recipient" name="recipient" type="text" inputmode="text" spellcheck="false" autocomplete="off" placeholder="0x…" aria-describedby="recipient-help"/><p class="field-help" id="recipient-help">Use a testnet address for today’s payment test.</p>
-        <label for="amount">Amount in test USDC</label><input id="amount" name="amount" type="text" inputmode="decimal" value="1" aria-describedby="amount-help"/><p class="field-help" id="amount-help">Testnet USDC only. Mainnet USDC cannot be used on Sui testnet.</p>
-        ${state.payoutError ? `<p class="inline-error">${state.payoutError}</p>` : ''}
-        ${state.payoutMessage ? `<p class="inline-error success-message">${state.payoutMessage}</p>` : ''}
-        <menu><button class="button ghost" value="cancel">Cancel</button><button class="button primary" type="button" data-action="validate-payout">${state.wallet ? 'Sign test USDC transfer' : 'Connect wallet and sign'} ${icon('arrow-right')}</button></menu>
-      </form>
-    </dialog>
-  `;
-
-  document.querySelectorAll('[data-action]').forEach((element) => {
-    element.addEventListener('click', handleAction);
-  });
-  document.querySelectorAll('input[name="plan"]').forEach((input) => {
-    input.addEventListener('change', (event) => { state.selectedPlan = event.target.value; render(); document.querySelector('#protection-dialog').showModal(); });
-  });
-  createIcons({
-    icons: { ArrowRight, BadgeCheck, BriefcaseBusiness, CalendarDays, CircleDollarSign, Landmark, RefreshCw, Send, ShieldCheck, WalletCards },
-  });
-}
-
-async function handleAction(event) {
-  const action = event.currentTarget.dataset.action;
-  if (action === 'dashboard') return;
-  if (action === 'protection') document.querySelector('#protection-dialog').showModal();
-  if (action === 'payout') document.querySelector('#payout-dialog').showModal();
-  if (action === 'connect-wallet') {
-    const button = event.currentTarget;
-    button.disabled = true;
-    try {
-      state.wallet = await connectSuiTestnetWallet();
-      state.network = await checkSuiTestnet();
-      state.networkError = '';
-    } catch (error) {
-      state.networkError = error.message || 'Could not connect a Sui testnet wallet.';
-    }
-    render();
-  }
-  if (action === 'market') {
-    const button = event.currentTarget;
-    button.disabled = true;
-    state.marketError = '';
-    try { state.market = await readThetanutsMarket(); } catch { state.marketError = 'Could not reach Thetanuts market data. Check your connection and retry.'; }
-    render();
-  }
-  if (action === 'save-plan') { state.view = 'dashboard'; }
-  if (action === 'validate-payout') {
-    event.preventDefault();
-    const recipient = document.querySelector('#recipient');
-    const amount = document.querySelector('#amount');
-    state.payoutError = '';
-    state.payoutMessage = '';
-    if (!/^0x[0-9a-fA-F]{2,}$/.test(recipient.value.trim())) {
-      state.payoutError = 'Enter a valid Sui testnet recipient address before continuing.';
-      recipient.setAttribute('aria-invalid', 'true');
-      recipient.focus();
-      return;
-    }
-    try {
-      if (!state.wallet) state.wallet = await connectSuiTestnetWallet();
-      state.network = await checkSuiTestnet();
-      const payment = await sendSuiTestnetUsdc({
-        ...state.wallet,
-        recipient: recipient.value.trim(),
-        amount: amount.value.trim(),
-      });
-      state.networkError = '';
-      state.payoutMessage = `Payment submitted to Sui testnet. Digest: ${payment.digest}`;
-    } catch (error) {
-      state.payoutError = error.message || 'The payment could not be prepared. Check your wallet, test USDC balance, and recipient address.';
-    }
-    render();
-    document.querySelector('#payout-dialog').showModal();
-  }
-}
-
+function landing() { return `<main class="landing shell"><section class="landing-copy"><p class="eyebrow">Due this month</p><h1>${money(15000)} of contractor payments due this month.</h1><p class="landing-subtitle">Protect the payment budget if ETH falls, then pay recipients in USDC when work is due.</p><div class="benefit-row"><span>${icon('shield-check')} Payment certainty</span><span>${icon('clock-3')} Stay on schedule</span><span>${icon('users-round')} Simple for recipients</span></div><button class="button primary large" type="button" data-action="start">See my protection cost ${icon('arrow-right')}</button><p class="landing-note">Start with your payment amount and due date. No wallet needed yet.</p></section><section class="example-card"><p class="eyebrow">An example payment plan</p><div class="example-head"><h2>September payments</h2><b>${money(15000)}</b></div>${rows()}<div class="example-total">${icon('shield-check')}<span>Total payment plan</span><b>${money(15000)}</b></div><div class="rail-flow"><span>${icon('landmark')}<b>Protect budget</b><small>Base · Thetanuts</small></span><i>${icon('arrow-right')}</i><span>${icon('send')}<b>Pay recipients</b><small>Sui · USDC</small></span></div></section></main>`; }
+function stepOne() { return `<main class="setup shell">${progress(1, 'Payment plan')}<section class="setup-grid"><form class="setup-main" id="plan-form"><p class="eyebrow">Your upcoming payments</p><h1>Create your payment plan.</h1><p>Tell us what must be paid and when. Add recipient details now or later.</p><fieldset class="plan-size"><legend>How much is scheduled for payment?</legend><div class="preset-row"><button class="preset-button ${state.plan.total === 10000 ? 'selected' : ''}" type="button" data-preset="10000">$10K</button><button class="preset-button ${state.plan.total === 20000 ? 'selected' : ''}" type="button" data-preset="20000">$20K</button><button class="preset-button ${state.plan.total === 30000 ? 'selected' : ''}" type="button" data-preset="30000">$30K</button><button class="preset-button ${![10000, 20000, 30000].includes(state.plan.total) ? 'selected' : ''}" type="button" data-preset="exact">Enter exact amount</button></div><p class="plan-guidance">Kyros is designed for teams with $10K+ in payments due over the next 30 days. Smaller plans can still be reviewed, but may not be cost-effective to protect.</p></fieldset><div class="form-grid"><div><label for="budget">Payment budget</label><input id="budget" inputmode="decimal" value="${state.plan.total}" aria-describedby="budget-help"/><small id="budget-help">Total amount you want to protect, in USDC.</small></div><div><label for="due-date">Latest due date</label><input id="due-date" type="date" value="${state.plan.due}"/></div></div><div class="section-title"><div><h2>Payment recipients</h2><p>People or businesses you plan to pay.</p></div><button class="text-button" type="button">${icon('circle-plus')} Add recipient</button></div><div class="recipient-editor">${rows()}</div><p class="form-error" id="plan-error" hidden></p><div class="form-actions"><button class="button primary" type="submit">See protection options ${icon('arrow-right')}</button><button class="text-button" type="button" data-action="home">Save and exit</button></div></form><aside class="summary-card"><p class="eyebrow">Payment plan summary</p><div class="summary-amount">${icon('shield-check')}<span>3 payments due</span><b>${money(state.plan.total)}</b></div>${rows()}<div class="summary-total"><span>Total payment budget</span><b>${money(state.plan.total)}</b></div></aside></section></main>`; }
+function stepTwo() { const plan = protectionPlans()[state.protection]; const market = state.market ? `ETH ${money(state.market.ethUsd)} · ${state.market.activeOrders} active Thetanuts orders · checked just now` : 'Load live market context before reviewing protection.'; return `<main class="setup shell">${progress(2, 'Protection')}<section class="setup-grid"><section class="setup-main"><p class="eyebrow">${money(state.plan.total)} due ${due()}</p><h1>Choose your budget protection.</h1><p>If ETH falls before your payments are due, protection helps keep the USDC payment budget ready.</p><fieldset class="choice-list"><legend>Choose a coverage level</legend>${Object.entries(protectionPlans()).map(([key, p]) => `<label class="protection-choice ${state.protection === key ? 'selected' : ''}"><input type="radio" name="protection" value="${key}" ${state.protection === key ? 'checked' : ''}/><span class="choice-copy"><strong>${p.title}${key === 'full' ? '<em>Recommended</em>' : ''}</strong><small>${p.copy}</small></span><span class="choice-number"><small>Coverage</small><b>${money(p.coverage)}</b></span><span class="choice-number"><small>Indicative estimate</small><b>${money(p.premium)}</b></span></label>`).join('')}</fieldset><div class="comparison"><span>${icon('trending-down')}<b>Without protection</b><small>Payment budget may shrink if ETH falls.</small></span><span>${icon('shield-check')}<b>With protection</b><small>${money(plan.coverage)} selected for this plan.</small></span></div><div class="form-actions"><button class="button primary" type="button" data-action="payouts">Continue to payout setup ${icon('arrow-right')}</button><button class="text-button" type="button" data-action="step-one">Go back</button></div><p class="under-action">Indicative only, not a trade quote. Your Base wallet will show the final Thetanuts order, premium, and approval before anything is submitted.</p></section><aside class="summary-card"><p class="eyebrow">Live protection context</p><div class="summary-total"><span>Payment plan</span><b>${money(state.plan.total)}</b></div><div class="market-check"><span>${icon('landmark')} Thetanuts on Base</span><button class="icon-button" type="button" data-action="market" aria-label="Refresh market data">${icon('refresh-cw')}</button></div><p class="sync-line">${state.marketError || market}</p><div class="summary-tip">${icon('wallet-cards')}<b>Next: wallet review</b><small>Kyros shows the trade to your wallet. It cannot sign on your behalf.</small></div></aside></section></main>`; }
+function stepThree() { const p = plans[state.protection]; return `<main class="setup shell">${progress(3, 'Payouts')}<section class="setup-grid"><section class="setup-main"><p class="eyebrow">Payment plan ready</p><h1>Prepare your recipients’ payouts.</h1><p>Protection choice: ${p.title}. Payments are sent separately in USDC on Sui.</p><div class="ready-card"><span>${icon('shield-check')}</span><div><b>${money(p.coverage)} selected for protection</b><p>Protection becomes active only after your Base wallet confirms the Thetanuts trade.</p></div></div><div class="payout-table"><div class="table-head"><span>Recipient</span><span>Amount</span><span>Due</span></div>${state.plan.recipients.map((r, i) => `<div class="table-row"><span><i class="initials tone-${i}">${r.initials}</i><b>${r.name}</b></span><b>${money(r.amount)}</b><span>${r.due}</span></div>`).join('')}<div class="table-total"><span>Total scheduled</span><b>${money(state.plan.total)} USDC</b></div></div><div class="form-actions"><button class="button primary" type="button" data-action="open-payout">Prepare a test payout ${icon('send')}</button><button class="text-button" type="button" data-action="dashboard">View dashboard</button></div></section><aside class="summary-card"><p class="eyebrow">Sui payout</p><div class="sui-mark">${icon('send')}</div><h2>Pay recipients clearly.</h2><p>Recipients receive USDC. Sponsored transactions are a future layer, not assumed here.</p><div class="summary-tip">${icon('users-round')}<b>Recipient-friendly</b><small>You review every transfer before it is sent.</small></div></aside></section></main>`; }
+function dashboard() { const p = plans[state.protection]; return `<main class="dashboard shell"><section class="dashboard-hero"><p class="eyebrow">Overview</p><h1>Your next 30-day payment plan.</h1><p>Track what is due, what protection you selected, and what is ready to pay.</p></section><section class="metrics"><article>${icon('circle-dollar-sign')}<small>Payment budget</small><b>${money(state.plan.total)} <em>USDC</em></b></article><article>${icon('shield-check')}<small>Protection status</small><b>Awaiting Base wallet confirmation</b></article><article>${icon('calendar-days')}<small>Latest due date</small><b>${due()}</b></article></section><section class="dashboard-grid"><article class="panel"><div class="card-heading"><div><p class="eyebrow">Upcoming payouts</p><h2>Three recipients</h2></div><button class="text-button" type="button" data-action="open-payout">Prepare payout</button></div><div class="payout-table">${state.plan.recipients.map((r, i) => `<div class="table-row"><span><i class="initials tone-${i}">${r.initials}</i><b>${r.name}</b></span><b>${money(r.amount)}</b><span>Scheduled · ${r.due}</span></div>`).join('')}</div></article><article class="panel"><p class="eyebrow">Protection status</p><h2>${p.title}</h2><div class="status-block">${icon('shield-check')}<span><b>Awaiting Base wallet confirmation</b><small>Review the latest order in your Base wallet before protection becomes active.</small></span></div><dl><div><dt>Selected coverage</dt><dd>${money(p.coverage)}</dd></div><div><dt>Estimated cost</dt><dd>${money(p.premium)}</dd></div><div><dt>Protection until</dt><dd>${due()}</dd></div></dl><button class="button secondary" type="button" data-action="step-two">Review protection ${icon('arrow-right')}</button></article></section><section class="dashboard-flow"><span>${icon('landmark')}<b>Base</b><small>Protection review</small></span><i>${icon('arrow-right')}</i><span>${icon('send')}<b>Sui</b><small>Recipient payouts</small></span><button class="button primary" type="button" data-action="open-payout">Prepare payouts</button></section></main>`; }
+function dialog() { return `<dialog class="dialog" id="payout-dialog"><form method="dialog" class="dialog-card"><button class="close" value="cancel" aria-label="Close">×</button><p class="eyebrow">Sui testnet payout</p><h2>Prepare a recipient payment.</h2><p class="dialog-intro">A connected Sui wallet reviews and signs the transfer. Kyros never stores keys.</p><label for="recipient">Recipient Sui address</label><input id="recipient" inputmode="text" placeholder="0x…"/><label for="amount">Amount in test USDC</label><input id="amount" inputmode="decimal" value="1"/><p class="field-help">Testnet USDC only. Mainnet USDC cannot be used on Sui testnet.</p>${state.payoutError ? `<p class="inline-error">${state.payoutError}</p>` : ''}${state.payoutMessage ? `<p class="success-message">${state.payoutMessage}</p>` : ''}<menu><button class="button ghost" value="cancel">Cancel</button><button class="button primary" type="button" data-action="send">Connect wallet and sign ${icon('arrow-right')}</button></menu></form></dialog>`; }
+function render() { const view = { landing, 'step-one': stepOne, 'step-two': stepTwo, payouts: stepThree, dashboard }[state.screen]; app.innerHTML = `${header()}${view()}${dialog()}`; app.querySelectorAll('[data-action]').forEach((el) => el.addEventListener('click', handle)); app.querySelectorAll('[data-preset]').forEach((el) => el.addEventListener('click', selectPreset)); app.querySelectorAll('input[name="protection"]').forEach((el) => el.addEventListener('change', (e) => { state.protection = e.target.value; render(); })); const form = app.querySelector('#plan-form'); if (form) form.addEventListener('submit', savePlan); createIcons({ icons }); }
+function go(screen) { state.screen = screen; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function setPlanTotal(total) { const factor = total / state.plan.total; const amounts = state.plan.recipients.map((recipient, index) => index === state.plan.recipients.length - 1 ? 0 : Math.round(recipient.amount * factor)); const allocated = amounts.reduce((sum, amount) => sum + amount, 0); state.plan.recipients = state.plan.recipients.map((recipient, index) => ({ ...recipient, amount: index === state.plan.recipients.length - 1 ? total - allocated : amounts[index] })); state.plan.total = total; }
+function savePlan(e) { e.preventDefault(); const value = app.querySelector('#budget').value.replace(/[$,\s]/g, ''); const date = app.querySelector('#due-date').value; const error = app.querySelector('#plan-error'); if (!/^\d+(\.\d{1,2})?$/.test(value) || Number(value) <= 0 || !date) { error.textContent = 'Add a valid payment budget and due date to continue.'; error.hidden = false; return; } setPlanTotal(Number(value)); state.plan.due = date; go('step-two'); }
+function selectPreset(e) { const value = e.currentTarget.dataset.preset; const budget = app.querySelector('#budget'); if (value === 'exact') { budget.focus(); budget.select(); return; } setPlanTotal(Number(value)); budget.value = value; app.querySelectorAll('[data-preset]').forEach((button) => button.classList.toggle('selected', button.dataset.preset === value)); }
+async function handle(e) { const a = e.currentTarget.dataset.action; if (a === 'home') go('landing'); if (a === 'start') go('step-one'); if (a === 'step-one') go('step-one'); if (a === 'step-two') go('step-two'); if (a === 'payouts') go('payouts'); if (a === 'dashboard') go('dashboard'); if (a === 'open-payout') app.querySelector('#payout-dialog').showModal(); if (a === 'market') { try { state.market = await readThetanutsMarket(); state.marketError = ''; } catch { state.marketError = 'Could not reach Thetanuts market data.'; } render(); } if (a === 'send') await send(); }
+async function send() { const recipient = app.querySelector('#recipient'); const amount = app.querySelector('#amount'); state.payoutError = ''; state.payoutMessage = ''; if (!/^0x[0-9a-fA-F]{2,}$/.test(recipient.value.trim())) { state.payoutError = 'Enter a valid Sui testnet recipient address.'; render(); app.querySelector('#payout-dialog').showModal(); return; } try { if (!state.wallet) state.wallet = await connectSuiTestnetWallet(); await checkSuiTestnet(); const payment = await sendSuiTestnetUsdc({ ...state.wallet, recipient: recipient.value.trim(), amount: amount.value.trim() }); state.payoutMessage = `Payment submitted: ${payment.digest}`; } catch (error) { state.payoutError = error.message || 'The payment could not be prepared.'; } render(); app.querySelector('#payout-dialog').showModal(); }
 render();
