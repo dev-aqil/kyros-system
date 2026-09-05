@@ -40,9 +40,12 @@ function usdcToMist(amount) {
  * transaction signing. A browser wallet extension must be installed.
  */
 export async function connectSuiTestnetWallet() {
-  const wallet = getWallets().get().find((candidate) =>
+  const compatibleWallets = getWallets().get().filter((candidate) =>
     candidate.chains.includes(SUI_TESTNET_CHAIN),
   );
+  const wallet = compatibleWallets.find((candidate) =>
+    candidate.name.toLowerCase().includes('sui vision'),
+  ) || compatibleWallets[0];
   if (!wallet) {
     throw new Error('No Sui testnet wallet was found. Install or unlock a Wallet Standard compatible Sui wallet.');
   }
