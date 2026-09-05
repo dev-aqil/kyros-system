@@ -39,15 +39,19 @@ function usdcToMist(amount) {
  * Wallet Standard gives the wallet, not Kyros, control over account access and
  * transaction signing. A browser wallet extension must be installed.
  */
-export async function connectSuiTestnetWallet() {
-  const compatibleWallets = getWallets().get().filter((candidate) =>
+export function getSuiTestnetWallets() {
+  return getWallets().get().filter((candidate) =>
     candidate.chains.includes(SUI_TESTNET_CHAIN),
   );
-  const wallet = compatibleWallets.find((candidate) =>
-    candidate.name.toLowerCase().includes('sui vision'),
-  ) || compatibleWallets[0];
+}
+
+export async function connectSuiTestnetWallet(walletName) {
+  const compatibleWallets = getSuiTestnetWallets();
+  const wallet = walletName
+    ? compatibleWallets.find((candidate) => candidate.name === walletName)
+    : compatibleWallets[0];
   if (!wallet) {
-    throw new Error('No Sui testnet wallet was found. Install or unlock a Wallet Standard compatible Sui wallet.');
+    throw new Error('No compatible Sui testnet wallet was found. Unlock a wallet set to Sui Testnet, then retry.');
   }
 
   const connected = await wallet.features['standard:connect'].connect();
